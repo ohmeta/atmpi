@@ -1,0 +1,71 @@
+# ============================================================================
+# CONFIGURATION FILE
+# ============================================================================
+
+# -----------------------------------------------------------------------------
+# INPUT FILES
+# -----------------------------------------------------------------------------
+asv_table: "data/asv_table.tsv"
+mag_table: "data/mag_table.tsv"
+mag_taxonomy: "data/gtdbtk_taxonomy.tsv"  # Optional: GTDB-Tk taxonomy output
+
+# -----------------------------------------------------------------------------
+# COLUMN NAMES FOR INPUT TABLES
+# -----------------------------------------------------------------------------
+# ASV table columns
+asv_id_column: "asv_id"
+asv_seq_column: "asv_seq"
+# MAG table columns
+mag_id_column: "mag_id"
+mag_seq_column: "mag_seq"
+
+# -----------------------------------------------------------------------------
+# BLAST PARAMETERS
+# -----------------------------------------------------------------------------
+blast_evalue: 0.0001
+blast_max_target_seqs: 10
+blast_task: "blastn"  # Use "blastn-short" for short reads (V4 region ~250bp)
+
+# -----------------------------------------------------------------------------
+# THRESHOLDS
+# -----------------------------------------------------------------------------
+identity_threshold: 97  # % identity for species-level assignment
+coverage_threshold: 80  # % coverage for both ASV and MAG
+strain_threshold: 98.5  # % identity for strain-level resolution
+
+# -----------------------------------------------------------------------------
+# TARGET SPECIES (for filtering)
+# -----------------------------------------------------------------------------
+target_species:
+  - "Bifidobacterium longum"
+  - "Gemella taiwanensis"
+  - "Streptococcus oralis"
+  - "Klebsiella pneumoniae"
+
+# -----------------------------------------------------------------------------
+# COMPUTATIONAL RESOURCES
+# -----------------------------------------------------------------------------
+threads: 16
+memory: "64G"
+
+# -----------------------------------------------------------------------------
+# MARKER GENE EXTRACTION
+# -----------------------------------------------------------------------------
+marker_type: "gtdb"  # Options: "gtdb", "checkm", "all"
+
+# -----------------------------------------------------------------------------
+# PATHS
+# -----------------------------------------------------------------------------
+output_dir: "results"
+log_dir: "logs"
+blast_db_dir: "blast_db"
+
+# -----------------------------------------------------------------------------
+# OPTIONAL: CUSTOM BLAST PARAMETERS
+# -----------------------------------------------------------------------------
+custom_blast_params:
+  word_size: 28  # Default for blastn; use 11 for blastn-short
+  reward: 2
+  penalty: -3
+  gapopen: 5
+  gapextend: 2
