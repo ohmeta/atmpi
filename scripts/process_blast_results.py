@@ -33,11 +33,10 @@ def filter_assignments(df, identity_thresh, coverage_thresh):
     df['asv_coverage'] = (df['length'] / df['qlen'] * 100).round(2)
     df['mag_coverage'] = (df['length'] / df['slen'] * 100).round(2)
 
-    # Filter by thresholds
+    # Filter by thresholds (only require coverage on ASV side)
     filtered = df[
         (df['pident'] >= identity_thresh) &
-        (df['asv_coverage'] >= coverage_thresh) &
-        (df['mag_coverage'] >= coverage_thresh)
+        (df['asv_coverage'] >= coverage_thresh)
     ].copy()
 
     return filtered
@@ -56,10 +55,13 @@ def assign_best_hit(df):
 
 
 def parse_sseqid(sseqid):
-    """Parse MAG ID from sseqid (format: MAG_ID|original_header)"""
-    if '|' in str(sseqid):
-        return sseqid.split('|')[0]
-    return sseqid
+    """Parse MAG ID from sseqid (formats: MAG_ID|header or MAG_ID_16S_rRNA::header)"""
+    s = str(sseqid)
+    if '_16S_rRNA::' in s:
+        return s.split('_16S_rRNA::')[0]
+    if '|' in s:
+        return s.split('|')[0]
+    return s
 
 
 def identify_strains(assignments):
@@ -105,24 +107,26 @@ def main():
     blast_contigs = load_blast_results(args.blast_contigs)
     print(f"  - Total hits: {len(blast_contigs)}")
 
+    # Parse MAG IDs
+    blast_16s['mag_id'] = blast_16s['sseqid'].apply(parse_sseqid)
+    blast_contigs['mag_id'] = blast_contigs['sseqid'].apply(parse_sseqid)
+
     # Combine BLAST results (prioritize contig hits)
     print("Combining BLAST results...")
     blast_contigs['source'] = 'contig'
     blast_16s['source'] = '16s'
 
-    # Merge: prefer contig hits over 16S hits
+    # Merge by ASV ID and MAG ID
     combined = blast_contigs.merge(
-        blast_16s[['qseqid', 'sseqid', 'pident', 'length', 'evalue', 'source']],
-        on=['qseqid', 'sseqid'],
+        blast_16s,
+        on=['qseqid', 'mag_id'],
         how='outer',
         suffixes=('_contig', '_16s')
     )
 
-    # Keep best hit per ASV-MAG pair
-    combined['pident'] = combined['pident_contig'].fillna(combined['pident_16s'])
-    combined['length'] = combined['length_contig'].fillna(combined['length_16s'])
-    combined['evalue'] = combined['evalue_contig'].fillna(combined['evalue_16s'])
-    combined['source'] = combined['source_contig'].fillna(combined['source_16s'])
+    # Keep best hit values per ASV-MAG pair
+    for col in ['sseqid', 'pident', 'length', 'evalue', 'qlen', 'slen', 'source']:
+        combined[col] = combined[f'{col}_contig'].fillna(combined[f'{col}_16s'])
 
     combined = combined.dropna(subset=['qseqid', 'sseqid'])
 

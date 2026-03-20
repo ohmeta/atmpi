@@ -7,6 +7,8 @@ import pandas as pd
 import os
 import subprocess
 import tempfile
+import gzip
+import shutil
 from pathlib import Path
 
 
@@ -14,18 +16,33 @@ def extract_16s_barrnap(fasta_path, output_dir, threads=8):
     """Extract 16S rRNA genes using Barrnap"""
     print(f"  Extracting 16S from: {fasta_path}")
 
-    # Create temp file for Barrnap output
-    with tempfile.NamedTemporaryFile(mode='w', suffix='_16s.fasta',
-                                     dir=output_dir, delete=False) as tmp:
-        tmp_path = tmp.name
+    # Initialize variables for cleanup
+    tmp_path = None
+    input_fasta = None
+    is_gzip = False
 
     try:
+        # Create temp file for Barrnap output
+        with tempfile.NamedTemporaryFile(mode='w', suffix='_16s.fasta',
+                                         dir=output_dir, delete=False) as tmp:
+            tmp_path = tmp.name
+
+        # Handle gzipped input
+        is_gzip = str(fasta_path).endswith('.gz')
+        if is_gzip:
+            # Decompress to temp file
+            with tempfile.NamedTemporaryFile(mode='wb', suffix='.fasta', dir=output_dir, delete=False) as input_tmp:
+                input_fasta = input_tmp.name
+                with gzip.open(fasta_path, 'rb') as f_in:
+                    shutil.copyfileobj(f_in, input_tmp)
+        else:
+            input_fasta = fasta_path
+
         cmd = [
             'barrnap',
             '--threads', str(threads),
-            '--genomic',
-            fasta_path,
-            tmp_path
+            '--outseq', tmp_path,
+            input_fasta
         ]
 
         result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
@@ -50,26 +67,28 @@ def extract_16s_barrnap(fasta_path, output_dir, threads=8):
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+        if is_gzip and input_fasta and os.path.exists(input_fasta):
+            os.remove(input_fasta)
 
 
-def read_fasta_sequences(fasta_path):
-    """Read a FASTA file and return dict of sequences"""
+def parse_fasta_string(fasta_content):
+    """Parse a FASTA format string and return dict of sequences"""
     sequences = {}
     current_id = None
     current_seq = []
 
-    with open(fasta_path, 'r') as f:
-        for line in f:
-            line = line.strip()
-            if line.startswith('>'):
-                if current_id:
-                    sequences[current_id] = ''.join(current_seq)
-                current_id = line[1:].split()[0]
-                current_seq = []
-            else:
-                current_seq.append(line)
-        if current_id:
-            sequences[current_id] = ''.join(current_seq)
+    for line in fasta_content.splitlines():
+        line = line.strip()
+        if not line: continue
+        if line.startswith('>'):
+            if current_id:
+                sequences[current_id] = ''.join(current_seq)
+            current_id = line[1:].split()[0]
+            current_seq = []
+        else:
+            current_seq.append(line)
+    if current_id:
+        sequences[current_id] = ''.join(current_seq)
 
     return sequences
 
@@ -122,7 +141,7 @@ def main():
 
         if extracted:
             # Parse extracted 16S sequences
-            extracted_seqs = read_fasta_sequences(extracted)
+            extracted_seqs = parse_fasta_string(extracted)
             for seq_id, seq in extracted_seqs.items():
                 # Prefix with MAG ID
                 new_id = f"{mag_id}_{seq_id}"

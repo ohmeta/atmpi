@@ -4,6 +4,16 @@
 configfile: "config.yaml"
 
 # ============================================================================
+# MAIN TARGET
+# ============================================================================
+rule all:
+    input:
+        "assignments/asv_to_mag_assignments.tsv",
+        "assignments/target_species_assignments.tsv",
+        "summary/asv_mag_summary.tsv",
+        "summary/visualization_report.html"
+
+# ============================================================================
 # CONSTANTS
 # ============================================================================
 BLAST_EVALUE = 0.0001
@@ -24,16 +34,21 @@ rule validate_inputs:
         mag_table = config["mag_table"]
     output:
         temp("validation/complete.flag")
+    params:
+        asv_seq_column = config["asv_seq_column"],
+        mag_seq_column = config["mag_seq_column"],
+        asv_id_column = config["asv_id_column"],
+        mag_id_column = config["mag_id_column"]
     shell:
         """
         echo "Validating input files..."
         python scripts/validate_inputs.py \
             --asv-table {input.asv_table} \
             --mag-table {input.mag_table} \
-            --asv-seq-column {config.asv_seq_column} \
-            --mag-seq-column {config.mag_seq_column} \
-            --asv-id-column {config.asv_id_column} \
-            --mag-id-column {config.mag_id_column}
+            --asv-seq-column {params.asv_seq_column} \
+            --mag-seq-column {params.mag_seq_column} \
+            --asv-id-column {params.asv_id_column} \
+            --mag-id-column {params.mag_id_column}
         touch {output[0]}
         """
 
@@ -44,25 +59,30 @@ rule extract_16s_from_mags:
     input:
         mag_table = config["mag_table"]
     output:
-        dir("16s_extraction/mag_16s")
+        outdir = directory("16s_extraction/mag_16s"),
+        fasta = "16s_extraction/mag_16s/all_mag_16s.fasta"
     params:
-        threads = config["threads"]
+        mag_seq_column = config["mag_seq_column"],
+        mag_id_column = config["mag_id_column"]
+    threads:
+        config["threads"]
     log:
         "logs/16s_extraction.log"
     shell:
         """
-        mkdir -p {output.dir} logs
+        mkdir -p {output.outdir} logs
         echo "Extracting 16S rRNA genes from MAGs..."
 
         # Process each MAG file
         python scripts/extract_16s.py \
             --mag-table {input.mag_table} \
-            --seq-column {config.mag_seq_column} \
-            --mag-id-column {config.mag_id_column} \
-            --output-dir {output.dir} \
-            --threads {params.threads}
+            --seq-column {params.mag_seq_column} \
+            --mag-id-column {params.mag_id_column} \
+            --output-dir {output.outdir} \
+            --threads {threads} \
+            2> {log}
 
-        echo "16S extraction complete. See {params.log}"
+        echo "16S extraction complete. See {log}"
         """
 
 # -----------------------------------------------------------------------------
@@ -72,7 +92,7 @@ rule build_mag_16s_db:
     input:
         "16s_extraction/mag_16s/all_mag_16s.fasta"
     output:
-        "blast_db/mag_16s_db.{n,2.nhr,2.nin,2.nsq}"
+        multiext("blast_db/mag_16s_db", ".nhr", ".nin", ".nsq")
     params:
         threads = config["threads"]
     log:
@@ -84,9 +104,8 @@ rule build_mag_16s_db:
             -in {input[0]} \
             -dbtype nucl \
             -out blast_db/mag_16s_db \
-            -parse_seqids \
             -title "MAG_16S_Database" \
-            2> {params.log}
+            2> {log}
         """
 
 # -----------------------------------------------------------------------------
@@ -95,14 +114,18 @@ rule build_mag_16s_db:
 rule blast_asv_to_mag_16s:
     input:
         asv_table = config["asv_table"],
-        mag_db = "blast_db/mag_16s_db"
+        mag_db = multiext("blast_db/mag_16s_db", ".nhr", ".nin", ".nsq")
     output:
         "blast_results/asv_to_mag_16s.tsv"
     params:
         evalue = config["blast_evalue"],
         max_target_seqs = config["blast_max_target_seqs"],
-        threads = config["threads"],
-        task = "blastn"  # Use "blastn-short" for short reads
+        task = config["blast_task"],
+        asv_seq_column = config["asv_seq_column"],
+        asv_id_column = config["asv_id_column"],
+        db_prefix = "blast_db/mag_16s_db"
+    threads:
+        config["threads"]
     log:
         "logs/blast_asv_to_mag_16s.log"
     shell:
@@ -112,129 +135,21 @@ rule blast_asv_to_mag_16s:
         # Prepare ASV sequences
         python scripts/prepare_blast_query.py \
             --asv-table {input.asv_table} \
-            --seq-column {config.asv_seq_column} \
-            --asv-id-column {config.asv_id_column} \
+            --seq-column {params.asv_seq_column} \
+            --asv-id-column {params.asv_id_column} \
             --output blast_query/asv_seqs.fasta
 
         # Run BLAST
         blastn \
             -query blast_query/asv_seqs.fasta \
-            -db {input.mag_db} \
+            -db {params.db_prefix} \
             -out {output[0]} \
             -outfmt "6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen" \
             -evalue {params.evalue} \
             -max_target_seqs {params.max_target_seqs} \
             -task {params.task} \
-            -num_threads {params.threads} \
-            2> {params.log}
-        """
-
-# -----------------------------------------------------------------------------
-# Rule 4: Extract marker genes from MAGs (GTDB-Tk markers)
-# -----------------------------------------------------------------------------
-rule extract_marker_genes:
-    input:
-        mag_table = config["mag_table"]
-    output:
-        dir("marker_extraction/marker_genes")
-    params:
-        threads = config["threads"]
-    log:
-        "logs/marker_extraction.log"
-    shell:
-        """
-        echo "Extracting marker genes from MAGs..."
-        mkdir -p {output.dir} logs
-
-        python scripts/extract_markers.py \
-            --mag-table {input.mag_table} \
-            --seq-column {config.mag_seq_column} \
-            --mag-id-column {config.mag_id_column} \
-            --output-dir {output.dir} \
-            --marker-type {config.marker_type} \
-            --threads {params.threads}
-
-        echo "Marker extraction complete."
-        """
-
-# -----------------------------------------------------------------------------
-# Rule 5: Build DIAMOND database from MAG marker proteins
-# -----------------------------------------------------------------------------
-rule build_marker_db:
-    input:
-        "marker_extraction/marker_genes/all_markers.faa"
-    output:
-        "diamond_db/marker_db.dmnd"
-    params:
-        threads = config["threads"]
-    log:
-        "logs/build_marker_db.log"
-    shell:
-        """
-        echo "Building DIAMOND database from marker proteins..."
-        diamond makedb \
-            --in {input[0]} \
-            --db diamond_db/marker_db \
-            --threads {params.threads} \
-            2> {params.log}
-        """
-
-# -----------------------------------------------------------------------------
-# Rule 6: Extract protein sequences from ASVs (if needed)
-# -----------------------------------------------------------------------------
-rule extract_asv_proteins:
-    input:
-        asv_table = config["asv_table"]
-    output:
-        "protein_extraction/asv_proteins.faa"
-    params:
-        frame = 1
-    log:
-        "logs/extract_asv_proteins.log"
-    shell:
-        """
-        echo "Extracting protein sequences from ASVs..."
-        mkdir -p protein_extraction logs
-
-        # Translate ASV nucleotide sequences to proteins
-        python scripts/translate_asvs.py \
-            --asv-table {input.asv_table} \
-            --seq-column {config.asv_seq_column} \
-            --asv-id-column {config.asv_id_column} \
-            --output {output[0]} \
-            --frame {params.frame}
-
-        echo "Protein extraction complete."
-        """
-
-# -----------------------------------------------------------------------------
-# Rule 7: DIAMOND BLAST ASVs against MAG marker proteins
-# -----------------------------------------------------------------------------
-rule diamond_asv_to_mag_markers:
-    input:
-        asv_proteins = "protein_extraction/asv_proteins.faa",
-        mag_markers = "diamond_db/marker_db.dmnd"
-    output:
-        "blast_results/asv_to_mag_markers.tsv"
-    params:
-        evalue = config["blast_evalue"],
-        max_target_seqs = config["blast_max_target_seqs"],
-        threads = config["threads"]
-    log:
-        "logs/diamond_asv_to_mag_markers.log"
-    shell:
-        """
-        echo "Running DIAMOND BLAST on ASVs vs MAG markers..."
-
-        diamond blastp \
-            -q {input.asv_proteins} \
-            -d {input.mag_markers} \
-            -o {output[0]} \
-            -f 6 qseqid sseqid pident length mismatch gapopen qstart qend sstart send evalue bitscore qlen slen \
-            -e {params.evalue} \
-            -k {params.max_target_seqs} \
-            --threads {params.threads} \
-            2> {params.log}
+            -num_threads {threads} \
+            2> {log}
         """
 
 # -----------------------------------------------------------------------------
@@ -249,7 +164,13 @@ rule blast_asv_to_mag_contigs:
     params:
         evalue = config["blast_evalue"],
         max_target_seqs = config["blast_max_target_seqs"],
-        threads = config["threads"]
+        mag_seq_column = config["mag_seq_column"],
+        mag_id_column = config["mag_id_column"],
+        asv_seq_column = config["asv_seq_column"],
+        asv_id_column = config["asv_id_column"],
+        task = config["blast_task"]
+    threads:
+        config["threads"]
     log:
         "logs/blast_asv_to_mag_contigs.log"
     shell:
@@ -259,15 +180,15 @@ rule blast_asv_to_mag_contigs:
         # Build combined MAG contig database
         python scripts/build_mag_contig_db.py \
             --mag-table {input.mag_table} \
-            --seq-column {config.mag_seq_column} \
-            --mag-id-column {config.mag_id_column} \
+            --seq-column {params.mag_seq_column} \
+            --mag-id-column {params.mag_id_column} \
             --output blast_db/mag_contigs_db
 
-        # Prepare ASV sequences
+        # Prepare ASV sequences (already done in other rules if possible, but keep for independence)
         python scripts/prepare_blast_query.py \
             --asv-table {input.asv_table} \
-            --seq-column {config.asv_seq_column} \
-            --asv-id-column {config.asv_id_column} \
+            --seq-column {params.asv_seq_column} \
+            --asv-id-column {params.asv_id_column} \
             --output blast_query/asv_seqs.fasta
 
         # Run BLAST
@@ -279,8 +200,8 @@ rule blast_asv_to_mag_contigs:
             -evalue {params.evalue} \
             -max_target_seqs {params.max_target_seqs} \
             -task {params.task} \
-            -num_threads {params.threads} \
-            2> {params.log}
+            -num_threads {threads} \
+            2> {log}
         """
 
 # -----------------------------------------------------------------------------
@@ -301,21 +222,20 @@ rule process_blast_results:
         strain_threshold = config["strain_threshold"]
     log:
         "logs/process_blast_results.log"
-    run:
-        shell:
-            """
-            python scripts/process_blast_results.py \
-                --asv-table {input.asv_table} \
-                --mag-table {input.mag_table} \
-                --blast-16s {input.blast_16s} \
-                --blast-contigs {input.blast_contigs} \
-                --output-assignments {output[0]} \
-                --output-strain {output[1]} \
-                --identity-threshold {params.identity_threshold} \
-                --coverage-threshold {params.coverage_threshold} \
-                --strain-threshold {params.strain_threshold} \
-                2> {params.log}
-            """
+    shell:
+        """
+        python scripts/process_blast_results.py \
+            --asv-table {input.asv_table} \
+            --mag-table {input.mag_table} \
+            --blast-16s {input.blast_16s} \
+            --blast-contigs {input.blast_contigs} \
+            --output-assignments {output[0]} \
+            --output-strain {output[1]} \
+            --identity-threshold {params.identity_threshold} \
+            --coverage-threshold {params.coverage_threshold} \
+            --strain-threshold {params.strain_threshold} \
+            2> {log}
+        """
 
 # -----------------------------------------------------------------------------
 # Rule 10: Generate summary statistics
@@ -323,21 +243,25 @@ rule process_blast_results:
 rule generate_summary:
     input:
         assignments = "assignments/asv_to_mag_assignments.tsv",
-        mag_taxonomy = config["mag_taxonomy"] if "mag_taxonomy" in config else None
+        mag_taxonomy = config["mag_taxonomy"] if "mag_taxonomy" in config and config["mag_taxonomy"] else []
     output:
         "summary/asv_mag_summary.tsv",
         "summary/visualization_report.html"
     log:
         "logs/generate_summary.log"
-    run:
-        shell:
-            """
-            python scripts/generate_summary.py \
-                --assignments {input.assignments} \
-                --taxonomy {input.mag_taxonomy} \
-                --output-prefix summary \
-                2> {params.log}
-            """
+    shell:
+        """
+        TAX_ARG=""
+        if [ ! -z "{input.mag_taxonomy}" ]; then
+            TAX_ARG="--taxonomy {input.mag_taxonomy}"
+        fi
+
+        python scripts/generate_summary.py \
+            --assignments {input.assignments} \
+            $TAX_ARG \
+            --output-prefix summary \
+            2> {log}
+        """
 
 # -----------------------------------------------------------------------------
 # Rule 11: Filter for target species
@@ -349,26 +273,15 @@ rule filter_target_species:
     output:
         "assignments/target_species_assignments.tsv"
     params:
-        target_species = config["target_species"]
+        target_species = lambda wildcards: ",".join(config["target_species"])
     log:
         "logs/filter_target_species.log"
-    run:
-        shell:
-            """
-            python scripts/filter_target_species.py \
-                --assignments {input.assignments} \
-                --mag-table {input.mag_table} \
-                --target-species {params.target_species} \
-                --output {output[0]} \
-                2> {params.log}
-            """
-
-# ============================================================================
-# MAIN TARGET
-# ============================================================================
-rule all:
-    input:
-        "assignments/asv_to_mag_assignments.tsv",
-        "assignments/target_species_assignments.tsv",
-        "summary/asv_mag_summary.tsv",
-        "summary/visualization_report.html"
+    shell:
+        """
+        python scripts/filter_target_species.py \
+            --assignments {input.assignments} \
+            --mag-table {input.mag_table} \
+            --target-species "{params.target_species}" \
+            --output {output[0]} \
+            2> {log}
+        """

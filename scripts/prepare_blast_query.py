@@ -38,9 +38,14 @@ def main():
                 print(f"  WARNING: Empty sequence for {asv_id}")
                 continue
 
-            # Read sequence from file
+            # Read sequence from file (handling FASTA)
             with open(seq_path, 'r') as seq_file:
-                seq = seq_file.read().strip().replace('\n', '')
+                lines = seq_file.readlines()
+                # Skip header if present
+                if lines[0].startswith('>'):
+                    seq = "".join(line.strip() for line in lines[1:])
+                else:
+                    seq = "".join(line.strip() for line in lines)
 
             # Write to output FASTA
             f.write(f">{asv_id}\n")

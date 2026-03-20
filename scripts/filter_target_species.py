@@ -34,15 +34,18 @@ def main():
     parser = argparse.ArgumentParser(description='Filter assignments for target species')
     parser.add_argument('--assignments', required=True, help='ASV-MAG assignments')
     parser.add_argument('--mag-table', required=True, help='MAG table with taxonomy')
-    parser.add_argument('--target-species', nargs='+', required=True, help='Target species list')
+    parser.add_argument('--target-species', required=True, help='Target species list (comma separated)')
     parser.add_argument('--output', required=True, help='Output file')
 
     args = parser.parse_args()
 
+    # Split target species
+    target_species_list = [s.strip() for s in args.target_species.split(',')]
+
     print("=" * 60)
     print("FILTERING FOR TARGET SPECIES")
     print("=" * 60)
-    print(f"Target species: {', '.join(args.target_species)}")
+    print(f"Target species: {', '.join(target_species_list)}")
 
     # Load assignments
     assignments = pd.read_csv(args.assignments, sep='\t')
@@ -77,7 +80,7 @@ def main():
 
     # Filter for target species
     assignments['matched_species'] = assignments[species_col].apply(
-        lambda x: match_species(x, args.target_species)
+        lambda x: match_species(x, target_species_list)
     )
 
     filtered = assignments[assignments['matched_species'].notna()].copy()

@@ -5,9 +5,9 @@
 # -----------------------------------------------------------------------------
 # INPUT FILES
 # -----------------------------------------------------------------------------
-asv_table: "data/asv_table.tsv"
-mag_table: "data/mag_table.tsv"
-mag_taxonomy: "data/gtdbtk_taxonomy.tsv"  # Optional: GTDB-Tk taxonomy output
+asv_table: "asv_table.tsv"
+mag_table: "mag_table.tsv"
+# mag_taxonomy: "data/gtdbtk_taxonomy.tsv"  # Optional: GTDB-Tk taxonomy output
 
 # -----------------------------------------------------------------------------
 # COLUMN NAMES FOR INPUT TABLES

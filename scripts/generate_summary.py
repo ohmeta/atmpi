@@ -60,12 +60,11 @@ def generate_per_species_summary(assignments_df, output_path):
     """Generate per-species breakdown"""
     # Group by MAG and ASV
     per_mag = assignments_df.groupby('mag_id').agg({
-        'asv_id': ['nunique', 'mean'],
+        'asv_id': 'nunique',
         'identity': ['mean', 'min', 'max']
     }).reset_index()
 
-    per_mag.columns = ['mag_id', 'n_asvs', 'mean_asv_identity',
-                       'mean_identity', 'min_identity', 'max_identity']
+    per_mag.columns = ['mag_id', 'n_asvs', 'mean_identity', 'min_identity', 'max_identity']
 
     # Sort by number of ASVs
     per_mag = per_mag.sort_values('n_asvs', ascending=False)

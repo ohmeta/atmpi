@@ -31,6 +31,7 @@ def main():
 
     # Combine all MAG contigs into single file
     combined_path = f"{output_dir}/combined_mag_contigs.fasta"
+    import gzip
     with open(combined_path, 'w') as outfile:
         for idx, row in df.iterrows():
             mag_id = row[args.mag_id_column]
@@ -41,7 +42,12 @@ def main():
                 continue
 
             # Read and rewrite with modified headers
-            with open(seq_path, 'r') as infile:
+            if str(seq_path).endswith('.gz'):
+                infile = gzip.open(seq_path, 'rt')
+            else:
+                infile = open(seq_path, 'r')
+            
+            with infile:
                 for line in infile:
                     if line.startswith('>'):
                         # Modify header to include MAG ID
@@ -60,7 +66,6 @@ def main():
         '-in', combined_path,
         '-dbtype', 'nucl',
         '-out', db_prefix,
-        '-parse_seqids',
         '-title', 'MAG_Contigs_Database'
     ]
 
